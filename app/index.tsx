@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { MaterialIcons } from "@expo/vector-icons";
+import {
+  FlatList,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
 import {
   addDoc,
   collection,
@@ -11,28 +18,34 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import {
-  FlatList,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { onAuthStateChanged } from "firebase/auth";
 
+import { MaterialIcons } from "@expo/vector-icons";
+
 import { auth, db } from "../lib/firebase";
 
 import { loginAnonymously } from "../lib/auth";
 
+import { requestNotificationPermissions } from "../lib/notifications";
+
+import { getUsername, saveUsername } from "../lib/user";
+
+import { suggestedItems } from "../lib/suggestions";
+
 import { Item } from "../types/item";
 
-import { getUsername, saveUsername } from "@/lib/user";
-import { Activity } from "@/types/activity";
-import { suggestedItems } from "../lib/suggestions";
+import { Activity } from "../types/activity";
+
+import ActivityFeed from "../components/ActivityFeed";
+
+import ItemCard from "../components/ItemCard";
+
+import RoomJoinCard from "../components/RoomJoinCard";
+
+import SuggestionsList from "../components/SuggestionsList";
 
 export default function HomeScreen() {
   const [itemName, setItemName] = useState("");
@@ -63,6 +76,8 @@ export default function HomeScreen() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         await loginAnonymously();
+
+        await requestNotificationPermissions();
       }
     });
 
@@ -101,6 +116,26 @@ export default function HomeScreen() {
     return () => unsubscribe();
   }, [joinedRoom]);
 
+  useEffect(() => {
+    if (!joinedRoom) return;
+
+    const q = query(
+      collection(db, "rooms", joinedRoom, "activities"),
+      orderBy("createdAt", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedActivities: Activity[] = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        ...(docItem.data() as Omit<Activity, "id">),
+      }));
+
+      setActivities(fetchedActivities);
+    });
+
+    return () => unsubscribe();
+  }, [joinedRoom]);
+
   const handleSaveUsername = async () => {
     if (!username.trim()) return;
 
@@ -117,6 +152,19 @@ export default function HomeScreen() {
     );
   }, [itemName]);
 
+  const addActivity = async (message: string) => {
+    if (!joinedRoom) return;
+
+    try {
+      await addDoc(collection(db, "rooms", joinedRoom, "activities"), {
+        message,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   const addItem = async (customItemName?: string) => {
     if (!joinedRoom) return;
 
@@ -128,9 +176,11 @@ export default function HomeScreen() {
       await addDoc(collection(db, "rooms", joinedRoom, "items"), {
         name: finalItemName,
         status: "PENDING",
-        createdAt: serverTimestamp(),
         addedBy: savedUsername,
+        createdAt: serverTimestamp(),
       });
+
+      await addActivity(`${savedUsername} added ${finalItemName}`);
 
       setItemName("");
     } catch (error) {
@@ -144,6 +194,10 @@ export default function HomeScreen() {
         status,
         updatedBy: savedUsername,
       });
+
+      await addActivity(
+        `${savedUsername} marked item as ${status.replaceAll("_", " ")}`,
+      );
     } catch (error) {
       console.log(error);
     }
@@ -158,6 +212,10 @@ export default function HomeScreen() {
       await updateDoc(doc(db, "rooms", joinedRoom, "items", id), {
         alternative,
       });
+
+      await addActivity(
+        `${savedUsername} suggested alternative ${alternative}`,
+      );
 
       setAlternativeInputs((prev) => ({
         ...prev,
@@ -221,33 +279,13 @@ export default function HomeScreen() {
                 </Text>
               </View>
             )}
-            <View className="mb-6 rounded-3xl bg-white p-5">
-              <Text className="text-xl font-bold text-black">
-                Join Family Room
-              </Text>
 
-              <TextInput
-                placeholder="Enter room code..."
-                value={roomId}
-                onChangeText={setRoomId}
-                className="mt-4 rounded-2xl bg-gray-100 px-4 py-4"
-              />
-
-              <TouchableOpacity
-                onPress={() => setJoinedRoom(roomId.trim())}
-                className="mt-4 rounded-2xl bg-black py-4"
-              >
-                <Text className="text-center font-semibold text-white">
-                  Join Room
-                </Text>
-              </TouchableOpacity>
-
-              {joinedRoom ? (
-                <Text className="mt-3 font-medium text-green-600">
-                  Joined Room: {joinedRoom}
-                </Text>
-              ) : null}
-            </View>
+            <RoomJoinCard
+              roomId={roomId}
+              setRoomId={setRoomId}
+              joinedRoom={joinedRoom}
+              onJoin={() => setJoinedRoom(roomId.trim())}
+            />
 
             <View className="flex-row items-center justify-between">
               <View>
@@ -275,9 +313,10 @@ export default function HomeScreen() {
               </Text>
 
               <View className="rounded-xl bg-black px-3 py-1">
-                <Text className="text-white font-semibold">{items.length}</Text>
+                <Text className="font-semibold text-white">{items.length}</Text>
               </View>
             </View>
+
             <View className="mt-6 flex-row">
               <TextInput
                 placeholder="Add grocery item..."
@@ -294,25 +333,16 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
+            <ActivityFeed activities={activities} />
+
             <Text className="mt-6 text-lg font-semibold text-black">
               Frequently Ordered
             </Text>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mt-4"
-            >
-              {filteredSuggestions.map((suggestion) => (
-                <TouchableOpacity
-                  key={suggestion}
-                  onPress={() => addItem(suggestion)}
-                  className="mr-3 rounded-2xl bg-white px-5 py-3"
-                >
-                  <Text className="font-medium text-black">{suggestion}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <SuggestionsList
+              suggestions={filteredSuggestions}
+              onSelect={(value) => addItem(value)}
+            />
           </View>
         }
         ListEmptyComponent={
@@ -330,105 +360,20 @@ export default function HomeScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View className="mx-5 mt-4 rounded-3xl bg-white p-5 shadow-sm">
-            <View className="flex-row items-start justify-between">
-              <View className="flex-1">
-                <Text className="text-xl font-semibold text-black">
-                  {item.name}
-                </Text>
-
-                <Text
-                  className={`mt-2 font-medium ${getStatusColor(item.status)}`}
-                >
-                  {item.status.replaceAll("_", " ")}
-                  {item.addedBy ? (
-                    <Text className="mt-1 text-sm text-gray-400 ml-2">
-                      Added by {item.addedBy}
-                    </Text>
-                  ) : null}
-
-                  {item.updatedBy ? (
-                    <Text className="mt-1 text-sm text-gray-400 ml-2">
-                      Updated by {item.updatedBy}
-                    </Text>
-                  ) : null}
-                </Text>
-              </View>
-
-              <MaterialIcons
-                name={
-                  item.status === "BOUGHT"
-                    ? "check-circle"
-                    : item.status === "OUT_OF_STOCK"
-                      ? "cancel"
-                      : "access-time"
-                }
-                size={28}
-                color={
-                  item.status === "BOUGHT"
-                    ? "green"
-                    : item.status === "OUT_OF_STOCK"
-                      ? "red"
-                      : "#ca8a04"
-                }
-              />
-            </View>
-
-            {item.alternative && (
-              <View className="mt-4 rounded-2xl bg-blue-50 p-4">
-                <Text className="font-semibold text-blue-700">
-                  Suggested Alternative
-                </Text>
-
-                <Text className="mt-1 text-blue-600">{item.alternative}</Text>
-              </View>
-            )}
-
-            <View className="mt-5 flex-row gap-3">
-              <TouchableOpacity
-                onPress={() => updateStatus(item.id, "BOUGHT")}
-                className="flex-1 rounded-2xl bg-green-500 py-4"
-              >
-                <Text className="text-center font-semibold text-white">
-                  Bought
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => updateStatus(item.id, "OUT_OF_STOCK")}
-                className="flex-1 rounded-2xl bg-red-500 py-4"
-              >
-                <Text className="text-center font-semibold text-white">
-                  Out Of Stock
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {item.status === "OUT_OF_STOCK" && (
-              <View className="mt-4">
-                <TextInput
-                  placeholder="Suggest alternative..."
-                  value={alternativeInputs[item.id] || ""}
-                  onChangeText={(text) =>
-                    setAlternativeInputs((prev) => ({
-                      ...prev,
-                      [item.id]: text,
-                    }))
-                  }
-                  className="rounded-2xl bg-gray-100 px-4 py-4"
-                />
-
-                <TouchableOpacity
-                  onPress={() => addAlternative(item.id)}
-                  className="mt-3 rounded-2xl bg-blue-500 py-4"
-                >
-                  <Text className="text-center font-semibold text-white">
-                    Add Alternative
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
+          <ItemCard
+            item={item}
+            alternativeValue={alternativeInputs[item.id] || ""}
+            onAlternativeChange={(text) =>
+              setAlternativeInputs((prev) => ({
+                ...prev,
+                [item.id]: text,
+              }))
+            }
+            onBought={() => updateStatus(item.id, "BOUGHT")}
+            onOutOfStock={() => updateStatus(item.id, "OUT_OF_STOCK")}
+            onAddAlternative={() => addAlternative(item.id)}
+            getStatusColor={getStatusColor}
+          />
         )}
       />
     </SafeAreaView>
