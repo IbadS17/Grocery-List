@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import {
   FlatList,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -29,6 +30,8 @@ import { loginAnonymously } from "../lib/auth";
 
 import { Item } from "../types/item";
 
+import { getUsername, saveUsername } from "@/lib/user";
+import { Activity } from "@/types/activity";
 import { suggestedItems } from "../lib/suggestions";
 
 export default function HomeScreen() {
@@ -36,9 +39,15 @@ export default function HomeScreen() {
 
   const [items, setItems] = useState<Item[]>([]);
 
+  const [activities, setActivities] = useState<Activity[]>([]);
+
   const [roomId, setRoomId] = useState("");
 
   const [joinedRoom, setJoinedRoom] = useState("");
+
+  const [username, setUsername] = useState("");
+
+  const [savedUsername, setSavedUsername] = useState("");
 
   const [alternativeInputs, setAlternativeInputs] = useState<
     Record<string, string>
@@ -61,6 +70,18 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
+    const loadUsername = async () => {
+      const storedUsername = await getUsername();
+
+      if (storedUsername) {
+        setSavedUsername(storedUsername);
+      }
+    };
+
+    loadUsername();
+  }, []);
+
+  useEffect(() => {
     if (!joinedRoom) return;
 
     const q = query(
@@ -79,6 +100,14 @@ export default function HomeScreen() {
 
     return () => unsubscribe();
   }, [joinedRoom]);
+
+  const handleSaveUsername = async () => {
+    if (!username.trim()) return;
+
+    await saveUsername(username);
+
+    setSavedUsername(username);
+  };
 
   const filteredSuggestions = useMemo(() => {
     if (!itemName.trim()) return suggestedItems;
@@ -100,6 +129,7 @@ export default function HomeScreen() {
         name: finalItemName,
         status: "PENDING",
         createdAt: serverTimestamp(),
+        addedBy: savedUsername,
       });
 
       setItemName("");
@@ -112,6 +142,7 @@ export default function HomeScreen() {
     try {
       await updateDoc(doc(db, "rooms", joinedRoom, "items", id), {
         status,
+        updatedBy: savedUsername,
       });
     } catch (error) {
       console.log(error);
@@ -161,6 +192,35 @@ export default function HomeScreen() {
         }}
         ListHeaderComponent={
           <View className="px-5 pt-10">
+            {!savedUsername ? (
+              <View className="mb-6 rounded-3xl bg-white p-5">
+                <Text className="text-xl font-bold text-black">Your Name</Text>
+
+                <TextInput
+                  placeholder="Enter your name..."
+                  value={username}
+                  onChangeText={setUsername}
+                  className="mt-4 rounded-2xl bg-gray-100 px-4 py-4"
+                />
+
+                <TouchableOpacity
+                  onPress={handleSaveUsername}
+                  className="mt-4 rounded-2xl bg-black py-4"
+                >
+                  <Text className="text-center font-semibold text-white">
+                    Save Name
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View className="mb-4">
+                <Text className="font-medium text-gray-500">Logged in as</Text>
+
+                <Text className="text-lg font-bold text-black">
+                  {savedUsername}
+                </Text>
+              </View>
+            )}
             <View className="mb-6 rounded-3xl bg-white p-5">
               <Text className="text-xl font-bold text-black">
                 Join Family Room
@@ -218,6 +278,41 @@ export default function HomeScreen() {
                 <Text className="text-white font-semibold">{items.length}</Text>
               </View>
             </View>
+            <View className="mt-6 flex-row">
+              <TextInput
+                placeholder="Add grocery item..."
+                value={itemName}
+                onChangeText={setItemName}
+                className="flex-1 rounded-l-2xl bg-white px-4 py-4 text-base"
+              />
+
+              <TouchableOpacity
+                onPress={() => addItem()}
+                className="items-center justify-center rounded-r-2xl bg-black px-6"
+              >
+                <Text className="font-semibold text-white">Add</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text className="mt-6 text-lg font-semibold text-black">
+              Frequently Ordered
+            </Text>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="mt-4"
+            >
+              {filteredSuggestions.map((suggestion) => (
+                <TouchableOpacity
+                  key={suggestion}
+                  onPress={() => addItem(suggestion)}
+                  className="mr-3 rounded-2xl bg-white px-5 py-3"
+                >
+                  <Text className="font-medium text-black">{suggestion}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         }
         ListEmptyComponent={
@@ -246,6 +341,17 @@ export default function HomeScreen() {
                   className={`mt-2 font-medium ${getStatusColor(item.status)}`}
                 >
                   {item.status.replaceAll("_", " ")}
+                  {item.addedBy ? (
+                    <Text className="mt-1 text-sm text-gray-400 ml-2">
+                      Added by {item.addedBy}
+                    </Text>
+                  ) : null}
+
+                  {item.updatedBy ? (
+                    <Text className="mt-1 text-sm text-gray-400 ml-2">
+                      Updated by {item.updatedBy}
+                    </Text>
+                  ) : null}
                 </Text>
               </View>
 

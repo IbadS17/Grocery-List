@@ -3,12 +3,13 @@ export interface Item {
 
   name: string;
 
-  status:
-    | "PENDING"
-    | "BOUGHT"
-    | "OUT_OF_STOCK";
+  status: "PENDING" | "BOUGHT" | "OUT_OF_STOCK";
 
   alternative?: string;
+
+  addedBy?: string;
+
+  updatedBy?: string;
 
   createdAt?: any;
 }
