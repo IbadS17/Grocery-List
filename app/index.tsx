@@ -47,6 +47,10 @@ import RoomJoinCard from "../components/RoomJoinCard";
 
 import SuggestionsList from "../components/SuggestionsList";
 
+import { setDoc } from "firebase/firestore";
+
+import { getRoom, saveRoom } from "../lib/room";
+
 export default function HomeScreen() {
   const [itemName, setItemName] = useState("");
 
@@ -96,6 +100,19 @@ export default function HomeScreen() {
     loadUsername();
   }, []);
 
+  useEffect(() => {
+    const loadRoom = async () => {
+      const savedRoom = await getRoom();
+
+      if (savedRoom) {
+        setJoinedRoom(savedRoom);
+
+        setRoomId(savedRoom);
+      }
+    };
+
+    loadRoom();
+  }, []);
   useEffect(() => {
     if (!joinedRoom) return;
 
@@ -239,6 +256,35 @@ export default function HomeScreen() {
     }
   };
 
+  const joinRoom = async () => {
+    if (!roomId.trim()) return;
+
+    try {
+      const roomRef = doc(db, "rooms", roomId.trim());
+
+      await setDoc(
+        roomRef,
+        {
+          roomName: roomId.trim(),
+          updatedAt: serverTimestamp(),
+        },
+        {
+          merge: true,
+        },
+      );
+
+      await setDoc(doc(db, "rooms", roomId.trim(), "members", savedUsername), {
+        username: savedUsername,
+
+        joinedAt: serverTimestamp(),
+      });
+      await saveRoom(roomId.trim());
+      setJoinedRoom(roomId.trim());
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       <FlatList
@@ -284,7 +330,7 @@ export default function HomeScreen() {
               roomId={roomId}
               setRoomId={setRoomId}
               joinedRoom={joinedRoom}
-              onJoin={() => setJoinedRoom(roomId.trim())}
+              onJoin={joinRoom}
             />
 
             <View className="flex-row items-center justify-between">
