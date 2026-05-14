@@ -3,6 +3,10 @@ export interface Item {
 
   name: string;
 
+  quantity?: string;
+
+  unit?: string;
+
   status: "PENDING" | "BOUGHT" | "OUT_OF_STOCK";
 
   alternative?: string;
@@ -10,6 +14,8 @@ export interface Item {
   addedBy?: string;
 
   updatedBy?: string;
+
+  archived?: boolean;
 
   createdAt?: any;
 }

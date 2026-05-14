@@ -18,6 +18,8 @@ interface Props {
   onAddAlternative: () => void;
 
   getStatusColor: (status: Item["status"]) => string;
+
+  onArchive: () => void;
 }
 
 export default function ItemCard({
@@ -28,12 +30,18 @@ export default function ItemCard({
   onOutOfStock,
   onAddAlternative,
   getStatusColor,
+  onArchive,
 }: Props) {
   return (
     <View className="mx-5 mt-4 rounded-3xl bg-white p-5 shadow-sm">
       <View className="flex-row items-start justify-between">
         <View className="flex-1">
           <Text className="text-xl font-semibold text-black">{item.name}</Text>
+          {item.quantity ? (
+            <Text className="mt-1 text-gray-500">
+              {item.quantity} {item.unit}
+            </Text>
+          ) : null}
 
           <Text className={`mt-2 font-medium ${getStatusColor(item.status)}`}>
             {item.status.replaceAll("_", " ")}
@@ -88,6 +96,17 @@ export default function ItemCard({
         >
           <Text className="text-center font-semibold text-white">Bought</Text>
         </TouchableOpacity>
+
+        {item.status === "BOUGHT" ? (
+          <TouchableOpacity
+            onPress={onArchive}
+            className="flex-1 rounded-2xl bg-gray-200 py-4"
+          >
+            <Text className="text-center font-semibold text-gray-700">
+              Delete
+            </Text>
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           onPress={onOutOfStock}

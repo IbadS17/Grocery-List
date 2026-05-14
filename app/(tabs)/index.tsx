@@ -17,6 +17,7 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  where,
 } from "firebase/firestore";
 
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,38 +26,51 @@ import { onAuthStateChanged } from "firebase/auth";
 
 import { MaterialIcons } from "@expo/vector-icons";
 
-import { auth, db } from "../lib/firebase";
+import { auth, db } from "../../lib/firebase";
 
-import { loginAnonymously } from "../lib/auth";
+import { loginAnonymously } from "../../lib/auth";
 
-import { requestNotificationPermissions } from "../lib/notifications";
+import { requestNotificationPermissions } from "../../lib/notifications";
 
-import { getUsername, saveUsername } from "../lib/user";
+import { getUsername, saveUsername } from "../../lib/user";
 
-import { suggestedItems } from "../lib/suggestions";
+import { Item } from "../../types/item";
 
-import { Item } from "../types/item";
+import { Activity } from "../../types/activity";
 
-import { Activity } from "../types/activity";
+import ActivityFeed from "../../components/ActivityFeed";
 
-import ActivityFeed from "../components/ActivityFeed";
+import ItemCard from "../../components/ItemCard";
 
-import ItemCard from "../components/ItemCard";
+import RoomJoinCard from "../../components/RoomJoinCard";
 
-import RoomJoinCard from "../components/RoomJoinCard";
-
-import SuggestionsList from "../components/SuggestionsList";
+import SuggestionsList from "../../components/SuggestionsList";
 
 import { setDoc } from "firebase/firestore";
 
-import { getRoom, saveRoom } from "../lib/room";
+import { units } from "@/lib/units";
+import { getRoom, saveRoom } from "../../lib/room";
 
 export default function HomeScreen() {
   const [itemName, setItemName] = useState("");
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const [selectedFilter, setSelectedFilter] = useState<
+    "ALL" | "PENDING" | "BOUGHT" | "OUT_OF_STOCK"
+  >("ALL");
+
+  const [quantity, setQuantity] = useState("");
+
+  const [selectedUnit, setSelectedUnit] = useState("pcs");
+
   const [items, setItems] = useState<Item[]>([]);
 
   const [activities, setActivities] = useState<Activity[]>([]);
+
+  const [smartSuggestions, setSmartSuggestions] = useState<string[]>([]);
+
+  const [historyItems, setHistoryItems] = useState<string[]>([]);
 
   const [roomId, setRoomId] = useState("");
 
@@ -118,6 +132,9 @@ export default function HomeScreen() {
 
     const q = query(
       collection(db, "rooms", joinedRoom, "items"),
+
+      where("archived", "==", false),
+
       orderBy("createdAt", "desc"),
     );
 
@@ -153,6 +170,23 @@ export default function HomeScreen() {
     return () => unsubscribe();
   }, [joinedRoom]);
 
+  useEffect(() => {
+    if (!joinedRoom) return;
+
+    const q = query(
+      collection(db, "rooms", joinedRoom, "history"),
+      orderBy("createdAt", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const history = snapshot.docs.map((doc) => doc.data().name as string);
+
+      setHistoryItems(history);
+    });
+
+    return () => unsubscribe();
+  }, [joinedRoom]);
+
   const handleSaveUsername = async () => {
     if (!username.trim()) return;
 
@@ -161,13 +195,39 @@ export default function HomeScreen() {
     setSavedUsername(username);
   };
 
-  const filteredSuggestions = useMemo(() => {
-    if (!itemName.trim()) return suggestedItems;
+  useEffect(() => {
+    if (!historyItems.length) return;
 
-    return suggestedItems.filter((item) =>
+    const frequencyMap: Record<string, number> = {};
+
+    historyItems.forEach((name) => {
+      const normalizedName = name.toLowerCase();
+
+      if (frequencyMap[normalizedName]) {
+        frequencyMap[normalizedName] += 1;
+      } else {
+        frequencyMap[normalizedName] = 1;
+      }
+    });
+
+    const sortedSuggestions = Object.entries(frequencyMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => {
+        return name.charAt(0).toUpperCase() + name.slice(1);
+      });
+
+    setSmartSuggestions(sortedSuggestions);
+  }, [historyItems]);
+
+  const filteredSuggestions = useMemo(() => {
+    if (!itemName.trim()) {
+      return smartSuggestions.slice(0, 10);
+    }
+
+    return smartSuggestions.filter((item) =>
       item.toLowerCase().includes(itemName.toLowerCase()),
     );
-  }, [itemName]);
+  }, [itemName, smartSuggestions]);
 
   const addActivity = async (message: string) => {
     if (!joinedRoom) return;
@@ -192,14 +252,25 @@ export default function HomeScreen() {
     try {
       await addDoc(collection(db, "rooms", joinedRoom, "items"), {
         name: finalItemName,
+        quantity,
+        unit: selectedUnit,
         status: "PENDING",
         addedBy: savedUsername,
+        archived: false,
+        createdAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "rooms", joinedRoom, "history"), {
+        name: finalItemName,
         createdAt: serverTimestamp(),
       });
 
       await addActivity(`${savedUsername} added ${finalItemName}`);
 
       setItemName("");
+      setQuantity("");
+
+      setSelectedUnit("pcs");
     } catch (error) {
       console.log(error);
     }
@@ -238,6 +309,18 @@ export default function HomeScreen() {
         ...prev,
         [id]: "",
       }));
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  const archiveItem = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "rooms", joinedRoom, "items", id), {
+        archived: true,
+      });
+
+      await addActivity(`${savedUsername} archived an item`);
     } catch (error) {
       console.log(error);
     }
@@ -285,10 +368,32 @@ export default function HomeScreen() {
     }
   };
 
+  const filteredItems = items.filter((item) => {
+    const matchesSearch = item.name
+      ?.toLowerCase()
+      .includes(searchQuery.toLowerCase());
+
+    let matchesFilter = true;
+
+    if (selectedFilter === "PENDING") {
+      matchesFilter = item.status === "PENDING";
+    }
+
+    if (selectedFilter === "BOUGHT") {
+      matchesFilter = item.status === "BOUGHT";
+    }
+
+    if (selectedFilter === "OUT_OF_STOCK") {
+      matchesFilter = item.status === "OUT_OF_STOCK";
+    }
+
+    return matchesSearch && matchesFilter;
+  });
+
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       <FlatList
-        data={items}
+        data={filteredItems}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -363,26 +468,113 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <View className="mt-6 flex-row">
-              <TextInput
-                placeholder="Add grocery item..."
-                value={itemName}
-                onChangeText={setItemName}
-                className="flex-1 rounded-l-2xl bg-white px-4 py-4 text-base"
-              />
+            <View className="mt-6">
+              <View className="flex-row">
+                <TextInput
+                  placeholder="Add grocery item..."
+                  value={itemName}
+                  onChangeText={setItemName}
+                  className="flex-1 rounded-l-2xl bg-white px-4 py-4 text-base"
+                />
 
-              <TouchableOpacity
-                onPress={() => addItem()}
-                className="items-center justify-center rounded-r-2xl bg-black px-6"
-              >
-                <Text className="font-semibold text-white">Add</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => addItem()}
+                  className="items-center justify-center rounded-r-2xl bg-black px-6"
+                >
+                  <Text className="font-semibold text-white">Add</Text>
+                </TouchableOpacity>
+              </View>
+
+              {itemName.trim() && filteredSuggestions.length > 0 ? (
+                <View className="mt-2 rounded-2xl bg-white p-2">
+                  {filteredSuggestions.slice(0, 5).map((suggestion) => (
+                    <TouchableOpacity
+                      key={suggestion}
+                      onPress={() => setItemName(suggestion)}
+                      className="rounded-xl px-4 py-3"
+                    >
+                      <Text className="text-black">{suggestion}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
             </View>
 
+            <View className="mt-4 flex-row gap-3">
+              <TextInput
+                placeholder="Qty"
+                value={quantity}
+                onChangeText={setQuantity}
+                keyboardType="numeric"
+                className="w-24 rounded-2xl bg-white px-4 py-4"
+              />
+
+              <FlatList
+                horizontal
+                data={units}
+                keyExtractor={(item) => item}
+                showsHorizontalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={() => setSelectedUnit(item)}
+                    className={`mr-3 rounded-2xl px-5 py-4 ${
+                      selectedUnit === item ? "bg-black" : "bg-white"
+                    }`}
+                  >
+                    <Text
+                      className={`font-semibold ${
+                        selectedUnit === item ? "text-white" : "text-black"
+                      }`}
+                    >
+                      {item}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+
+            <View className="mt-6">
+              <TextInput
+                placeholder="Search items..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                className="rounded-2xl bg-white px-4 py-4"
+              />
+            </View>
+            <FlatList
+              horizontal
+              data={["ALL", "PENDING", "BOUGHT", "OUT_OF_STOCK"]}
+              keyExtractor={(item) => item}
+              showsHorizontalScrollIndicator={false}
+              className="mt-4"
+              renderItem={({ item }) => {
+                const count =
+                  item === "ALL"
+                    ? items.length
+                    : items.filter((i) => i.status === item).length;
+
+                return (
+                  <TouchableOpacity
+                    onPress={() => setSelectedFilter(item as any)}
+                    className={`mr-3 rounded-2xl px-5 py-3 ${
+                      selectedFilter === item ? "bg-black" : "bg-white"
+                    }`}
+                  >
+                    <Text
+                      className={`font-semibold ${
+                        selectedFilter === item ? "text-white" : "text-black"
+                      }`}
+                    >
+                      {item.replaceAll("_", " ")} ({count})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
             <ActivityFeed activities={activities} />
 
             <Text className="mt-6 text-lg font-semibold text-black">
-              Frequently Ordered
+              Smart Frequently Ordered
             </Text>
 
             <SuggestionsList
@@ -396,12 +588,11 @@ export default function HomeScreen() {
             <MaterialIcons name="shopping-cart" size={70} color="#d1d5db" />
 
             <Text className="mt-5 text-2xl font-bold text-gray-400">
-              No Items Yet
+              No Matching Items
             </Text>
 
             <Text className="mt-2 text-center text-gray-400">
-              Add your first grocery item to start collaborating with family
-              members.
+              Try changing search or filter settings.
             </Text>
           </View>
         }
@@ -419,6 +610,7 @@ export default function HomeScreen() {
             onOutOfStock={() => updateStatus(item.id, "OUT_OF_STOCK")}
             onAddAlternative={() => addAlternative(item.id)}
             getStatusColor={getStatusColor}
+            onArchive={() => archiveItem(item.id)}
           />
         )}
       />
