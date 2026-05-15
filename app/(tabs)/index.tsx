@@ -38,11 +38,7 @@ import { Item } from "../../types/item";
 
 import { Activity } from "../../types/activity";
 
-import ActivityFeed from "../../components/ActivityFeed";
-
 import ItemCard from "../../components/ItemCard";
-
-import RoomJoinCard from "../../components/RoomJoinCard";
 
 import SuggestionsList from "../../components/SuggestionsList";
 
@@ -51,14 +47,10 @@ import { setDoc } from "firebase/firestore";
 import { units } from "@/lib/units";
 import { getRoom, saveRoom } from "../../lib/room";
 
+import { useRoomStore } from "../../store/useRoomStore";
+
 export default function HomeScreen() {
   const [itemName, setItemName] = useState("");
-
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const [selectedFilter, setSelectedFilter] = useState<
-    "ALL" | "PENDING" | "BOUGHT" | "OUT_OF_STOCK"
-  >("ALL");
 
   const [quantity, setQuantity] = useState("");
 
@@ -74,7 +66,7 @@ export default function HomeScreen() {
 
   const [roomId, setRoomId] = useState("");
 
-  const [joinedRoom, setJoinedRoom] = useState("");
+  const { joinedRoom, setJoinedRoom } = useRoomStore();
 
   const [username, setUsername] = useState("");
 
@@ -368,32 +360,10 @@ export default function HomeScreen() {
     }
   };
 
-  const filteredItems = items.filter((item) => {
-    const matchesSearch = item.name
-      ?.toLowerCase()
-      .includes(searchQuery.toLowerCase());
-
-    let matchesFilter = true;
-
-    if (selectedFilter === "PENDING") {
-      matchesFilter = item.status === "PENDING";
-    }
-
-    if (selectedFilter === "BOUGHT") {
-      matchesFilter = item.status === "BOUGHT";
-    }
-
-    if (selectedFilter === "OUT_OF_STOCK") {
-      matchesFilter = item.status === "OUT_OF_STOCK";
-    }
-
-    return matchesSearch && matchesFilter;
-  });
-
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       <FlatList
-        data={filteredItems}
+        data={items}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -401,43 +371,6 @@ export default function HomeScreen() {
         }}
         ListHeaderComponent={
           <View className="px-5 pt-10">
-            {!savedUsername ? (
-              <View className="mb-6 rounded-3xl bg-white p-5">
-                <Text className="text-xl font-bold text-black">Your Name</Text>
-
-                <TextInput
-                  placeholder="Enter your name..."
-                  value={username}
-                  onChangeText={setUsername}
-                  className="mt-4 rounded-2xl bg-gray-100 px-4 py-4"
-                />
-
-                <TouchableOpacity
-                  onPress={handleSaveUsername}
-                  className="mt-4 rounded-2xl bg-black py-4"
-                >
-                  <Text className="text-center font-semibold text-white">
-                    Save Name
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View className="mb-4">
-                <Text className="font-medium text-gray-500">Logged in as</Text>
-
-                <Text className="text-lg font-bold text-black">
-                  {savedUsername}
-                </Text>
-              </View>
-            )}
-
-            <RoomJoinCard
-              roomId={roomId}
-              setRoomId={setRoomId}
-              joinedRoom={joinedRoom}
-              onJoin={joinRoom}
-            />
-
             <View className="flex-row items-center justify-between">
               <View>
                 <Text className="text-3xl font-bold text-black">
@@ -532,46 +465,6 @@ export default function HomeScreen() {
                 )}
               />
             </View>
-
-            <View className="mt-6">
-              <TextInput
-                placeholder="Search items..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                className="rounded-2xl bg-white px-4 py-4"
-              />
-            </View>
-            <FlatList
-              horizontal
-              data={["ALL", "PENDING", "BOUGHT", "OUT_OF_STOCK"]}
-              keyExtractor={(item) => item}
-              showsHorizontalScrollIndicator={false}
-              className="mt-4"
-              renderItem={({ item }) => {
-                const count =
-                  item === "ALL"
-                    ? items.length
-                    : items.filter((i) => i.status === item).length;
-
-                return (
-                  <TouchableOpacity
-                    onPress={() => setSelectedFilter(item as any)}
-                    className={`mr-3 rounded-2xl px-5 py-3 ${
-                      selectedFilter === item ? "bg-black" : "bg-white"
-                    }`}
-                  >
-                    <Text
-                      className={`font-semibold ${
-                        selectedFilter === item ? "text-white" : "text-black"
-                      }`}
-                    >
-                      {item.replaceAll("_", " ")} ({count})
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-            <ActivityFeed activities={activities} />
 
             <Text className="mt-6 text-lg font-semibold text-black">
               Smart Frequently Ordered

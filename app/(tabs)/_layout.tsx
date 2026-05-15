@@ -29,23 +29,12 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
-        name="activity"
+        name="explore"
         options={{
-          title: "Activity",
+          title: "Explore",
 
           tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="history" color={color} size={size} />
-          ),
-        }}
-      />
-
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: "History",
-
-          tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="inventory" color={color} size={size} />
+            <MaterialIcons name="search" color={color} size={size} />
           ),
         }}
       />
