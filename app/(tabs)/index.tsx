@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  FlatList,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-
-import {
   addDoc,
   collection,
   doc,
@@ -19,6 +11,13 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import {
+  FlatList,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -44,10 +43,15 @@ import SuggestionsList from "../../components/SuggestionsList";
 
 import { setDoc } from "firebase/firestore";
 
-import { units } from "@/lib/units";
 import { getRoom, saveRoom } from "../../lib/room";
 
+import { units } from "../../lib/units";
+
+import { sendRoleBasedNotification } from "../../lib/notifications";
 import { useRoomStore } from "../../store/useRoomStore";
+
+import { getRole } from "@/lib/role";
+import { RequestItem } from "../../types/request";
 
 export default function HomeScreen() {
   const [itemName, setItemName] = useState("");
@@ -76,7 +80,43 @@ export default function HomeScreen() {
     Record<string, string>
   >({});
 
+  const [role, setRole] = useState("");
+
+  const [requests, setRequests] = useState<RequestItem[]>([]);
+
   const hasLoggedIn = useRef(false);
+
+  useEffect(() => {
+    const loadRole = async () => {
+      const storedRole = await getRole();
+
+      if (storedRole) {
+        setRole(storedRole);
+      }
+    };
+
+    loadRole();
+  }, []);
+
+  useEffect(() => {
+    if (!joinedRoom) return;
+
+    const q = query(
+      collection(db, "rooms", joinedRoom, "requests"),
+      orderBy("createdAt", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedRequests: RequestItem[] = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        ...(docItem.data() as Omit<RequestItem, "id">),
+      }));
+
+      setRequests(fetchedRequests);
+    });
+
+    return () => unsubscribe();
+  }, [joinedRoom]);
 
   useEffect(() => {
     if (hasLoggedIn.current) return;
@@ -234,6 +274,29 @@ export default function HomeScreen() {
     }
   };
 
+  const requestItem = async () => {
+    if (!itemName.trim()) return;
+
+    try {
+      await addDoc(collection(db, "rooms", joinedRoom, "requests"), {
+        itemName: itemName,
+        requestedBy: savedUsername,
+        status: "PENDING",
+        createdAt: serverTimestamp(),
+      });
+
+      await sendRoleBasedNotification(
+        "SENDER",
+        "New Item Request",
+        `${savedUsername} requested ${itemName}`,
+      );
+
+      setItemName("");
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   const addItem = async (customItemName?: string) => {
     if (!joinedRoom) return;
 
@@ -257,6 +320,12 @@ export default function HomeScreen() {
         createdAt: serverTimestamp(),
       });
 
+      await sendRoleBasedNotification(
+        "BUYER",
+        "New Grocery Item",
+        `${savedUsername} added ${finalItemName}`,
+      );
+
       await addActivity(`${savedUsername} added ${finalItemName}`);
 
       setItemName("");
@@ -274,6 +343,12 @@ export default function HomeScreen() {
         status,
         updatedBy: savedUsername,
       });
+
+      await sendRoleBasedNotification(
+        "SENDER",
+        "Item Status Updated",
+        `${savedUsername} marked item as ${status.replaceAll("_", " ")}`,
+      );
 
       await addActivity(
         `${savedUsername} marked item as ${status.replaceAll("_", " ")}`,
@@ -293,6 +368,12 @@ export default function HomeScreen() {
         alternative,
       });
 
+      await sendRoleBasedNotification(
+        "SENDER",
+        "Alternative Suggested",
+        `${savedUsername} suggested ${alternative}`,
+      );
+
       await addActivity(
         `${savedUsername} suggested alternative ${alternative}`,
       );
@@ -311,8 +392,58 @@ export default function HomeScreen() {
       await updateDoc(doc(db, "rooms", joinedRoom, "items", id), {
         archived: true,
       });
-
       await addActivity(`${savedUsername} archived an item`);
+    } catch (error) {
+      console.log(error);
+    }
+  };
+  const approveRequest = async (request: RequestItem) => {
+    try {
+      await addDoc(collection(db, "rooms", joinedRoom, "items"), {
+        name: request.itemName,
+
+        quantity: "",
+
+        unit: "pcs",
+
+        status: "PENDING",
+
+        archived: false,
+
+        addedBy: request.requestedBy,
+
+        updatedBy: "",
+
+        createdAt: serverTimestamp(),
+      });
+
+      await updateDoc(doc(db, "rooms", joinedRoom, "requests", request.id), {
+        status: "ACCEPTED",
+      });
+
+      await addActivity(`${savedUsername} approved ${request.itemName}`);
+
+      await sendRoleBasedNotification(
+        "BUYER",
+        "Request Accepted",
+        `${request.itemName} was approved`,
+      );
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  const rejectRequest = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "rooms", joinedRoom, "requests", id), {
+        status: "REJECTED",
+      });
+
+      await sendRoleBasedNotification(
+        "BUYER",
+        "Request Rejected",
+        "Your item request was rejected",
+      );
     } catch (error) {
       console.log(error);
     }
@@ -411,10 +542,18 @@ export default function HomeScreen() {
                 />
 
                 <TouchableOpacity
-                  onPress={() => addItem()}
+                  onPress={() => {
+                    if (role === "BUYER") {
+                      requestItem();
+                    } else {
+                      addItem();
+                    }
+                  }}
                   className="items-center justify-center rounded-r-2xl bg-black px-6"
                 >
-                  <Text className="font-semibold text-white">Add</Text>
+                  <Text className="font-semibold text-white">
+                    {role === "BUYER" ? "Request" : "Add"}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -465,15 +604,63 @@ export default function HomeScreen() {
                 )}
               />
             </View>
+            {role === "SENDER" &&
+            requests.filter((r) => r.status === "PENDING").length > 0 ? (
+              <View className="mt-6">
+                <Text className="text-lg font-semibold text-black">
+                  Pending Requests
+                </Text>
 
-            <Text className="mt-6 text-lg font-semibold text-black">
-              Smart Frequently Ordered
-            </Text>
+                {requests
+                  .filter((r) => r.status === "PENDING")
+                  .map((request) => (
+                    <View
+                      key={request.id}
+                      className="mt-4 rounded-3xl bg-white p-5"
+                    >
+                      <Text className="text-lg font-semibold text-black">
+                        {request.itemName}
+                      </Text>
 
-            <SuggestionsList
-              suggestions={filteredSuggestions}
-              onSelect={(value) => addItem(value)}
-            />
+                      <Text className="mt-1 text-gray-500">
+                        Requested by {request.requestedBy}
+                      </Text>
+
+                      <View className="mt-4 flex-row gap-3">
+                        <TouchableOpacity
+                          onPress={() => approveRequest(request)}
+                          className="flex-1 rounded-2xl bg-green-500 py-4"
+                        >
+                          <Text className="text-center font-semibold text-white">
+                            Accept
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => rejectRequest(request.id)}
+                          className="flex-1 rounded-2xl bg-red-500 py-4"
+                        >
+                          <Text className="text-center font-semibold text-white">
+                            Reject
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+              </View>
+            ) : null}
+            {role === "SENDER" ? (
+              <>
+                <Text className="mt-6 text-lg font-semibold text-black">
+                  Smart Frequently Ordered
+                </Text>
+
+                <SuggestionsList
+                  suggestions={filteredSuggestions}
+                  onSelect={(value) => addItem(value)}
+                />
+              </>
+            ) : null}
           </View>
         }
         ListEmptyComponent={

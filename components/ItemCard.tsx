@@ -96,17 +96,14 @@ export default function ItemCard({
         >
           <Text className="text-center font-semibold text-white">Bought</Text>
         </TouchableOpacity>
-
-        {item.status === "BOUGHT" ? (
-          <TouchableOpacity
-            onPress={onArchive}
-            className="flex-1 rounded-2xl bg-gray-200 py-4"
-          >
-            <Text className="text-center font-semibold text-gray-700">
-              Delete
-            </Text>
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity
+          onPress={onArchive}
+          className="flex-1 rounded-2xl bg-gray-200 py-4"
+        >
+          <Text className="text-center font-semibold text-gray-700">
+            Delete
+          </Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           onPress={onOutOfStock}

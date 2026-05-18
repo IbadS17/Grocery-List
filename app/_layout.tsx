@@ -1,33 +1,25 @@
 import "../global.css";
 
-import { Stack } from "expo-router";
+import { Redirect, Stack, useSegments } from "expo-router";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
-import { Redirect } from "expo-router";
+import { Text, View } from "react-native";
 
-import {
-  getUsername,
-} from "../lib/user";
+import { getUsername } from "../lib/user";
 
-import {
-  getRoom,
-} from "../lib/room";
+import { getRoom } from "../lib/room";
 
 export default function RootLayout() {
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const [hasSetup, setHasSetup] =
-    useState(false);
+  const [hasSetup, setHasSetup] = useState(false);
+
+  const segments = useSegments() as string[];
 
   useEffect(() => {
     const checkSetup = async () => {
-      const username =
-        await getUsername();
+      const username = await getUsername();
 
       const room = await getRoom();
 
@@ -41,10 +33,20 @@ export default function RootLayout() {
     checkSetup();
   }, []);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-white">
+        <Text className="text-base text-gray-500">Loading...</Text>
+      </View>
+    );
+  }
 
-  if (!hasSetup) {
+  if (!hasSetup && !segments.includes("onboarding")) {
     return <Redirect href="/onboarding" />;
+  }
+
+  if (hasSetup && segments.includes("onboarding")) {
+    return <Redirect href="/" />;
   }
 
   return (

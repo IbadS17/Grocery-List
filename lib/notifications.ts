@@ -1,6 +1,7 @@
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { getRole } from "./role";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -47,4 +48,44 @@ export const requestNotificationPermissions = async () => {
   console.log("Expo Push Token:", token.data);
 
   return token.data;
+};
+
+export const sendRoleBasedNotification = async (
+  targetRole: "BUYER" | "SENDER",
+  title: string,
+  body: string,
+) => {
+  try {
+    const currentRole = await getRole();
+
+    if (currentRole !== targetRole) return;
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: true,
+      },
+
+      trigger: null,
+    });
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+export const sendLocalNotification = async (title: string, body: string) => {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: true,
+      },
+
+      trigger: null,
+    });
+  } catch (error) {
+    console.log(error);
+  }
 };

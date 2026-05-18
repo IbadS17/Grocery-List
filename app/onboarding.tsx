@@ -1,34 +1,57 @@
-import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { router } from "expo-router";
 
-import { saveUsername } from "../lib/user";
+import { getUsername, saveUsername } from "../lib/user";
 
-import { saveRoom } from "../lib/room";
+import { getRoom, saveRoom } from "../lib/room";
 
+import { saveRole } from "../lib/role";
 import { useRoomStore } from "../store/useRoomStore";
 
 export default function OnboardingScreen() {
   const [username, setUsername] = useState("");
 
   const [roomId, setRoomId] = useState("");
+  const [role, setRole] = useState<"SENDER" | "BUYER">("BUYER");
 
   const { setJoinedRoom } = useRoomStore();
+
+  useEffect(() => {
+    const redirectIfSetupExists = async () => {
+      const storedUsername = await getUsername();
+      const storedRoom = await getRoom();
+
+      if (storedUsername && storedRoom) {
+        router.replace("/");
+      }
+    };
+
+    redirectIfSetupExists();
+  }, []);
 
   const handleContinue = async () => {
     if (!username.trim()) return;
 
     if (!roomId.trim()) return;
 
-    await saveUsername(username);
+    const usernameSaved = await saveUsername(username);
+    const roomSaved = await saveRoom(roomId);
+    await saveRole(role);
 
-    await saveRoom(roomId);
+    if (!usernameSaved || !roomSaved) {
+      Alert.alert(
+        "Unable to continue",
+        "We could not save your name or room code. Please try again.",
+      );
+      return;
+    }
 
     setJoinedRoom(roomId);
 
-    router.replace("/(tabs)");
+    router.replace("/");
   };
 
   return (
@@ -63,6 +86,42 @@ export default function OnboardingScreen() {
               onChangeText={setRoomId}
               className="rounded-2xl bg-gray-100 px-4 py-4"
             />
+          </View>
+
+          <View className="mt-6">
+            <Text className="mb-3 font-semibold text-black">Select Role</Text>
+
+            <View className="flex-row gap-3">
+              <TouchableOpacity
+                onPress={() => setRole("BUYER")}
+                className={`flex-1 rounded-2xl py-4 ${
+                  role === "BUYER" ? "bg-black" : "bg-white"
+                }`}
+              >
+                <Text
+                  className={`text-center font-semibold ${
+                    role === "BUYER" ? "text-white" : "text-black"
+                  }`}
+                >
+                  Buyer
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setRole("SENDER")}
+                className={`flex-1 rounded-2xl py-4 ${
+                  role === "SENDER" ? "bg-black" : "bg-white"
+                }`}
+              >
+                <Text
+                  className={`text-center font-semibold ${
+                    role === "SENDER" ? "text-white" : "text-black"
+                  }`}
+                >
+                  Sender
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <TouchableOpacity

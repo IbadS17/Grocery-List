@@ -18,10 +18,11 @@ export default function SettingsScreen() {
 
   const [room, setRoom] = useState("");
 
+  const { darkMode, toggleDarkMode } = useThemeStore();
+
   useEffect(() => {
     const loadData = async () => {
       const storedUsername = await getUsername();
-      const { darkMode, toggleDarkMode } = useThemeStore();
       const storedRoom = await getRoom();
 
       if (storedUsername) {
@@ -62,7 +63,7 @@ export default function SettingsScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => router.push("/activity-history")}
+          onPress={() => router.push("../activity-history")}
           className="mt-4 rounded-3xl bg-white p-5"
         >
           <Text className="text-xl font-semibold text-black">
@@ -75,7 +76,7 @@ export default function SettingsScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => router.push("/archived-history")}
+          onPress={() => router.push("../archived-history")}
           className="mt-4 rounded-3xl bg-white p-5"
         >
           <Text className="text-xl font-semibold text-black">
